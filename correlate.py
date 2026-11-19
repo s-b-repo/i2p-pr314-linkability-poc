@@ -46,7 +46,9 @@ def main():
     args = ap.parse_args()
 
     i2p_by_label = {r["label"]: r for r in load(args.i2p_log) if r.get("label")}
-    hits = load(args.clearnet_log)
+    clearnet = load(args.clearnet_log)
+    hits = [r for r in clearnet if r.get("event", "clearnet_hit") == "clearnet_hit"]
+    idents = [r for r in clearnet if r.get("event") == "clearnet_identity"]
 
     bar = "=" * 76
     print(bar)
@@ -114,6 +116,44 @@ def main():
     print("  never leaves, so no shared label and no Referer reach the clearnet side,")
     print("  while the top-level navigation the user intended is still allowed.")
     print(bar)
+
+    if idents:
+        # label -> tracking cookie (from the beacon hits) -> real identity.
+        label_to_track = {h["label"]: h.get("track_cookie")
+                          for h in hits if h.get("label") and h.get("track_cookie")}
+        track_to_identity = {r.get("track_cookie"): r.get("identity")
+                             for r in idents if r.get("track_cookie")}
+        print()
+        print(bar)
+        print("STEP 3  --  from an anonymous label to a real identity")
+        print(bar)
+        print("  A tracking cookie set on the clearnet beacon is re-presented on a")
+        print("  later AUTHENTICATED clearnet request from the same browser profile.")
+        print()
+        deanon = 0
+        for label, track in label_to_track.items():
+            identity = track_to_identity.get(track)
+            pv = i2p_by_label.get(label)
+            if identity and pv:
+                deanon += 1
+                print("  I2P visit      : http://%s%s" % (pv["eepsite_host"], pv["path"]))
+                print("    label        : %s" % label)
+                print("    track cookie : %s   <-- set by the beacon; no IP, no login"
+                      % track)
+                print("    clearnet id  : %s   <-- same cookie, now beside a real identity"
+                      % identity)
+                print("    => the anonymous I2P session is linked to %s" % identity)
+                print()
+        print("  I2P pageviews de-anonymized via the cookie bridge : %d / %d"
+              % (deanon, len(i2p_by_label)))
+        print()
+        print("  This is the escalation steps 1-2 deliberately did NOT claim to prove on")
+        print("  their own. It adds one assumption: the same browser profile (cookie jar)")
+        print("  spans both the I2P-proxied beacon load and an ordinary authenticated")
+        print("  clearnet request. PR #314 removes the precondition entirely -- the")
+        print("  cross-network beacon is blocked, the cookie is never set, and there is")
+        print("  nothing left to bridge.")
+        print(bar)
 
 
 if __name__ == "__main__":

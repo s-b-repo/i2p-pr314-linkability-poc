@@ -77,13 +77,43 @@ Referer and can do the same join.
 2. **Cross-anonymity-set move (demonstrated):** an event that lived inside
    I2P (where outside observers see only tunnels) is re-emitted on the public
    internet where far more parties can see it.
-3. **De-anonymization (the escalation, not claimed as shown here):** if that
-   same label is ever observed next to a real-world identifier — a logged-in
+3. **De-anonymization (the escalation):** if that same label (or a cookie the
+   beacon sets) is ever observed next to a real-world identifier — a logged-in
    request, an ad/analytics beacon the user also loads elsewhere, a second
-   fetch tied to an account — the I2P session links to that identity. The PoC
-   does not stage a real identity provider; it demonstrates the join primitive
-   that step 3 depends on. This matches the author's own framing ("a real-world
-   identity or IP would require additional information").
+   fetch tied to an account — the I2P session links to that identity.
+   `step3_identity.py` now stages exactly this (see below); steps 1-2 are the
+   join primitive it builds on. This matches the author's own framing ("a
+   real-world identity or IP would require additional information").
+
+## Step 3: from an anonymous label to a real identity (optional)
+
+`bash run_step3.sh` runs the escalation end to end:
+
+```
+Phase 1  anonymous I2P pageview auto-loads the beacon
+         GET <collector>/px.gif?sid=LABEL        (cross-site, no-cors)
+         -> collector mints  Set-Cookie: track=COOKIE   and logs (LABEL, COOKIE)
+
+Phase 2  later, SAME browser, ordinary clearnet, logged in
+         GET <collector>/whoami?user=alice@example.com
+         -> browser re-sends  Cookie: track=COOKIE
+         -> collector logs (COOKIE, alice@example.com)
+
+Join     LABEL -> COOKIE -> alice@example.com -> the exact I2P pageview
+```
+
+`correlate.py` prints the chain and reports the I2P pageview de-anonymized.
+
+**The one added assumption, stated plainly:** a single browser profile (one
+cookie jar) is used for *both* the I2P-proxied beacon load and an ordinary
+authenticated clearnet request. That is precisely the configuration a correct
+anonymity setup avoids (separate browsers / profiles for I2P and clearnet), and
+precisely the client PR #314 protects as defense-in-depth. The patch removes
+the **precondition**, not just the symptom: the cross-network beacon is blocked,
+so the cookie is never set and there is nothing to bridge. The `track` cookie
+here stands in for any durable clearnet identifier an ad/analytics endpoint sets
+— the mechanism is ordinary third-party cookie tracking, applied across the
+I2P/clearnet boundary.
 
 ## How PR #314 stops it
 
@@ -122,12 +152,14 @@ join in `correlate.py` has nothing to join.
 ## Files
 
 ```
-eepsite.py     I2P eepsite that mints a per-visit label and embeds clearnet sub-resources
-collector.py   clearnet server that logs every incoming sub-resource request
-visit.py       headless browser: navigation + automatic sub-resource loads, real headers
-correlate.py   joins the two logs by label and prints the correlation + PR#314 verdict
-run_poc.sh     starts both servers, runs two visits, prints the result
-logs/          JSONL observation logs written by the two servers
+eepsite.py         I2P eepsite that mints a per-visit label and embeds clearnet sub-resources
+collector.py       clearnet server: logs sub-resource hits, sets a tracking cookie, has a /whoami identity sink
+visit.py           headless browser: navigation + automatic sub-resource loads, real headers
+step3_identity.py  one cookie jar across an I2P beacon load and a later authenticated clearnet request
+correlate.py       joins the logs by label (+ the cookie->identity chain) and prints the PR#314 verdict
+run_poc.sh         starts both servers, runs two visits, prints the result
+run_step3.sh       runs the label -> cookie -> identity de-anonymization chain
+logs/              JSONL observation logs written by the two servers
 ```
 
 ### Trying it in a real browser (optional)
